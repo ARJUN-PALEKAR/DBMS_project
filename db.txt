@@ -1,0 +1,201 @@
+
+CREATE DATABASE advanced_train_db;
+USE advanced_train_db;
+
+-- 2. USERS (Handles both passengers and admins)
+CREATE TABLE Users (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    phone VARCHAR(15) UNIQUE NOT NULL,
+    role ENUM('ADMIN', 'USER') DEFAULT 'USER',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. STATIONS (All available railway stations)
+CREATE TABLE Stations (
+    station_id INT AUTO_INCREMENT PRIMARY KEY,
+    station_code VARCHAR(10) UNIQUE NOT NULL,
+    station_name VARCHAR(100) NOT NULL,
+    city VARCHAR(50),
+    state VARCHAR(50)
+);
+
+-- 4. TRAINS (Master list of trains)
+CREATE TABLE Trains (
+    train_id INT AUTO_INCREMENT PRIMARY KEY,
+    train_number VARCHAR(10) UNIQUE NOT NULL,
+    train_name VARCHAR(100) NOT NULL,
+    train_type ENUM('EXPRESS', 'SUPERFAST', 'PASSENGER', 'RAJDHANI', 'SHATABDI') DEFAULT 'EXPRESS',
+    source_station_id INT,
+    dest_station_id INT,
+    FOREIGN KEY (source_station_id) REFERENCES Stations(station_id),
+    FOREIGN KEY (dest_station_id) REFERENCES Stations(station_id)
+);
+
+-- 5. SEAT CLASSES (Master list of coach types e.g., 1A, 2A, SL)
+CREATE TABLE Seat_Classes (
+    class_id INT AUTO_INCREMENT PRIMARY KEY,
+    class_code VARCHAR(5) UNIQUE NOT NULL, -- e.g., '1A', 'SL', 'CC'
+    class_name VARCHAR(50) NOT NULL,
+    fare_multiplier DECIMAL(3,2) NOT NULL -- Used by Java to calculate ticket price
+);
+
+-- 6. TRAIN_CLASS_CAPACITY (Maps how many seats of each class a specific train has)
+CREATE TABLE Train_Class_Capacity (
+    capacity_id INT AUTO_INCREMENT PRIMARY KEY,
+    train_id INT,
+    class_id INT,
+    total_seats INT NOT NULL,
+    FOREIGN KEY (train_id) REFERENCES Trains(train_id) ON DELETE CASCADE,
+    FOREIGN KEY (class_id) REFERENCES Seat_Classes(class_id) ON DELETE CASCADE
+);
+
+-- 7. TRAIN_SCHEDULE (The route map and timetable)
+CREATE TABLE Train_Schedule (
+    schedule_id INT AUTO_INCREMENT PRIMARY KEY,
+    train_id INT,
+    station_id INT,
+    arrival_time TIME,
+    departure_time TIME,
+    day_count INT DEFAULT 1, -- e.g., Day 1, Day 2 of the journey
+    distance_from_source INT NOT NULL, -- Crucial for fare calculation
+    stop_sequence INT NOT NULL,
+    FOREIGN KEY (train_id) REFERENCES Trains(train_id) ON DELETE CASCADE,
+    FOREIGN KEY (station_id) REFERENCES Stations(station_id)
+);
+
+-- 8. BOOKINGS / PNR (The main ticket umbrella)
+CREATE TABLE Bookings (
+    pnr_number VARCHAR(15) PRIMARY KEY, -- PNRs are usually strings/alphanumeric
+    user_id INT,
+    train_id INT,
+    journey_date DATE NOT NULL,
+    booking_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    total_fare DECIMAL(10, 2) NOT NULL,
+    booking_status ENUM('CONFIRMED', 'CANCELLED', 'PARTIAL_CANCEL') DEFAULT 'CONFIRMED',
+    FOREIGN KEY (user_id) REFERENCES Users(user_id),
+    FOREIGN KEY (train_id) REFERENCES Trains(train_id)
+);
+
+-- 9. PASSENGERS (Individual people attached to a PNR)
+CREATE TABLE Passengers (
+    passenger_id INT AUTO_INCREMENT PRIMARY KEY,
+    pnr_number VARCHAR(15),
+    first_name VARCHAR(50) NOT NULL,
+    age INT NOT NULL,
+    gender ENUM('M', 'F', 'OTHER') NOT NULL,
+    class_id INT,
+    seat_number VARCHAR(10), -- e.g., 'B1-42'
+    status ENUM('CONFIRMED', 'RAC', 'WL', 'CANCELLED') DEFAULT 'CONFIRMED',
+    FOREIGN KEY (pnr_number) REFERENCES Bookings(pnr_number) ON DELETE CASCADE,
+    FOREIGN KEY (class_id) REFERENCES Seat_Classes(class_id)
+);
+
+-- 10. PAYMENTS (Transaction ledger)
+CREATE TABLE Payments (
+    payment_id INT AUTO_INCREMENT PRIMARY KEY,
+    pnr_number VARCHAR(15),
+    amount DECIMAL(10, 2) NOT NULL,
+    payment_method ENUM('CREDIT_CARD', 'UPI', 'NET_BANKING', 'DEBIT_CARD'),
+    transaction_id VARCHAR(100) UNIQUE,
+    payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    payment_status ENUM('SUCCESS', 'FAILED', 'REFUNDED') DEFAULT 'SUCCESS',
+    FOREIGN KEY (pnr_number) REFERENCES Bookings(pnr_number) ON DELETE CASCADE
+);
+show databases;
+USE advanced_train_db;
+
+-- 1. CLEAR OLD DATA (So we don't get duplicates)
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE Trains;
+TRUNCATE TABLE Stations;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 2. INSERT STATIONS
+INSERT INTO Stations (station_code, station_name, city, state) VALUES 
+('MAS', 'Chennai Central', 'Chennai', 'Tamil Nadu'),
+('SBC', 'KSR Bengaluru', 'Bangalore', 'Karnataka'),
+('NDLS', 'New Delhi', 'Delhi', 'Delhi'),
+('CSMT', 'Mumbai CSMT', 'Mumbai', 'Maharashtra'),
+('MAO', 'Madgaon Junction', 'Madgaon', 'Goa');
+
+-- 3. INSERT TRAINS
+INSERT INTO Trains (train_number, train_name, train_type, source_station_id, dest_station_id) VALUES 
+('12607', 'Lalbagh Express', 'EXPRESS', 1, 2),
+('12027', 'Shatabdi Express', 'SHATABDI', 1, 2),
+('12615', 'Grand Trunk Express', 'SUPERFAST', 1, 3),
+('22630', 'Madgaon SF Express', 'SUPERFAST', 1, 5),
+('12123', 'Deccan Queen', 'SUPERFAST', 4, 5),
+('12951', 'Mumbai Rajdhani', 'RAJDHANI', 4, 3);
+
+select * from stations;
+select * from trains;
+-- Add the price column
+ALTER TABLE Trains ADD COLUMN price DECIMAL(10, 2) DEFAULT 500.00;
+
+-- Give your trains some specific prices
+UPDATE Trains SET price = 650.00 WHERE train_number = '12607'; -- Lalbagh
+UPDATE Trains SET price = 1200.00 WHERE train_number = '12027'; -- Shatabdi
+UPDATE Trains SET price = 2500.00 WHERE train_number = '12951'; -- Rajdhani
+
+select * from Users;
+USE advanced_train_db;
+
+-- 1. Create TrainClasses table
+CREATE TABLE IF NOT EXISTS TrainClasses (
+    class_id INT PRIMARY KEY AUTO_INCREMENT,
+    train_id INT,
+    class_type VARCHAR(20), -- '1AC', '2AC', '3AC', 'SL', '2S', 'CC'
+    base_price DECIMAL(10, 2),
+    available_seats INT,
+    FOREIGN KEY (train_id) REFERENCES Trains(train_id) ON DELETE CASCADE
+);
+
+-- 2. Clean Slate
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE TrainClasses;
+TRUNCATE TABLE Trains;
+TRUNCATE TABLE Stations;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 3. Insert ~50 Major Stations (Top Tier Junctions)
+INSERT INTO Stations (station_code, station_name, city, state) VALUES 
+('NDLS', 'New Delhi', 'Delhi', 'Delhi'), ('CSMT', 'Mumbai CSMT', 'Mumbai', 'Maharashtra'),
+('MAS', 'MGR Chennai Central', 'Chennai', 'Tamil Nadu'), ('SBC', 'KSR Bengaluru City', 'Bengaluru', 'Karnataka'),
+('HWH', 'Howrah Junction', 'Kolkata', 'West Bengal'), ('HYB', 'Hyderabad Deccan', 'Hyderabad', 'Telangana'),
+('PNBE', 'Patna Junction', 'Patna', 'Bihar'), ('ADI', 'Ahmedabad Junction', 'Ahmedabad', 'Gujarat'),
+('CNB', 'Kanpur Central', 'Kanpur', 'Uttar Pradesh'), ('LKO', 'Lucknow Charbagh', 'Lucknow', 'Uttar Pradesh'),
+('BCT', 'Mumbai Central', 'Mumbai', 'Maharashtra'), ('YPR', 'Yesvantpur Junction', 'Bengaluru', 'Karnataka'),
+('BPL', 'Bhopal Junction', 'Bhopal', 'Madhya Pradesh'), ('JP', 'Jaipur Junction', 'Jaipur', 'Rajasthan'),
+('VGA', 'Vijayawada Junction', 'Vijayawada', 'Andhra Pradesh'), ('TVC', 'Thiruvananthapuram Central', 'Trivandrum', 'Kerala'),
+('GHY', 'Guwahati Junction', 'Guwahati', 'Assam'), ('MAO', 'Madgaon Junction', 'Madgaon', 'Goa'),
+('NGP', 'Nagpur Junction', 'Nagpur', 'Maharashtra'), ('PUNE', 'Pune Junction', 'Pune', 'Maharashtra'),
+('BSB', 'Varanasi Junction', 'Varanasi', 'Uttar Pradesh'), ('MYS', 'Mysuru Junction', 'Mysore', 'Karnataka'),
+('CBE', 'Coimbatore Junction', 'Coimbatore', 'Tamil Nadu'), ('CDG', 'Chandigarh Junction', 'Chandigarh', 'Punjab'),
+('VSKP', 'Visakhapatnam City', 'Visakhapatnam', 'Andhra Pradesh'), ('ERS', 'Ernakulam Junction', 'Kochi', 'Kerala');
+
+-- 4. Insert Realistic Trains
+INSERT INTO Trains (train_id, train_number, train_name, train_type, source_station_id, dest_station_id, price) VALUES 
+(1, '12607', 'Lalbagh Express', 'EXPRESS', 3, 4, 599.00), -- MAS to SBC
+(2, '12951', 'Mumbai Rajdhani', 'RAJDHANI', 11, 1, 2800.00), -- BCT to NDLS
+(3, '12123', 'Deccan Queen', 'SUPERFAST', 2, 20, 450.00), -- CSMT to PUNE
+(4, '12245', 'Howrah Duronto', 'DURONTO', 5, 4, 2400.00), -- HWH to SBC
+(5, '12615', 'Grand Trunk Express', 'SUPERFAST', 3, 1, 1200.00), -- MAS to NDLS
+(6, '10111', 'Konkan Kanya Exp', 'EXPRESS', 2, 18, 850.00); -- CSMT to MAO
+
+-- 5. Insert Seats & Classes for each train
+-- Lalbagh (Train 1)
+INSERT INTO TrainClasses (train_id, class_type, base_price, available_seats) VALUES (1, '2S', 190.00, 140), (1, 'CC', 599.00, 42);
+-- Rajdhani (Train 2)
+INSERT INTO TrainClasses (train_id, class_type, base_price, available_seats) VALUES (2, '1AC', 4500.00, 8), (2, '2AC', 3100.00, 18), (2, '3AC', 2200.00, 54);
+-- Grand Trunk (Train 5)
+INSERT INTO TrainClasses (train_id, class_type, base_price, available_seats) VALUES (5, '2AC', 2100.00, 12), (5, '3AC', 1500.00, 30), (5, 'SL', 650.00, 88);
+-- Konkan Kanya (Train 6)
+INSERT INTO TrainClasses (train_id, class_type, base_price, available_seats) VALUES (6, 'SL', 450.00, 200), (6, '3AC', 1100.00, 45);
+
+select * from Trains;
+
+select * from Users
